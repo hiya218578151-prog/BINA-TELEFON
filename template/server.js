@@ -3,35 +3,6 @@ const {YemotRouter}=require('yemot-router2');
 const {AI_PROVIDER='openai',AI_MODEL,AI_KEY,YEMOT_TOKEN,GEMINI_API_KEY}=process.env;
 const SYS='אתה עוזר טלפוני. ענה בעברית, בקצרה (עד 3 משפטים), בלי סימנים מיוחדים ובלי רשימות.';
 const geminiKey=GEMINI_API_KEY||(AI_PROVIDER==='gemini'?AI_KEY:'');
-const TTS_MODEL=process.env.TTS_MODEL||'gemini-3.8-flash-tts';
-const TTS_VOICE=process.env.TTS_VOICE||'Kore';
-async function makeSpeech(text){
- if(!geminiKey)throw new Error('GEMINI_API_KEY is missing for TTS');
- const res=await fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{
-  method:'POST',headers:{'x-goog-api-key':geminiKey,'content-type':'application/json'},
-  signal:AbortSignal.timeout(45000),
-  body:JSON.stringify({model:TTS_MODEL,input:[{type:'user_input',content:[{type:'text',text:String(text).slice(0,1800),annotations:[{type:'speech_metadata',style:'warm, clear, natural Hebrew phone assistant'}]}]}],response_format:{type:'audio'},generation_config:{speech_config:[{voice:TTS_VOICE}]}})
- });
- const data=await res.json().catch(()=>({}));
- if(!res.ok)throw new Error('Gemini TTS failed: '+(data.error?.message||res.status));
- let encoded=data.output_audio?.data;
- if(!encoded&&Array.isArray(data.steps)){
-  for(const step of data.steps)if(step.type==='model_output')for(const part of step.content||[])if(part.type==='audio'&&part.data)encoded=part.data;
- }
- if(!encoded)throw new Error('Gemini TTS returned no audio');
- return Buffer.from(encoded,'base64');
-}
-async function uploadSpeech(ext,fileName,audio){
- const form=new FormData();
- form.set('token',YEMOT_TOKEN);
- form.set('path','ivr2:/'+ext+'/'+fileName+'.wav');
- form.set('convertAudio','0');form.set('tts','0');
- form.set('file',new Blob([audio],{type:'audio/wav'}),fileName+'.wav');
- const res=await fetch('https://www.call2all.co.il/ym/api/UploadFile',{method:'POST',body:form,signal:AbortSignal.timeout(30000)});
- const data=await res.json().catch(()=>({}));
- if(!res.ok||data.responseStatus==='ERROR'||data.success===false)throw new Error('Yemot audio upload failed: '+(data.message||res.status));
- return fileName;
-}
 async function ask(hist){
  const last=hist.slice(-12);
  let r,j;
@@ -52,7 +23,8 @@ async function transcribeFromYemot(ext,fileName){
  const candidates=['wav','ogg','mp3'];
  let audio=null,mime='';
  for(const extn of candidates){
-  const p='ivr2:/'+ext+'/'+fileName+'.'+extn;
+  const folder=String(ext||'').replace(/\D/g,'');
+  const p=(folder?'ivr2:/'+folder+'/':'ivr2:/')+fileName+'.'+extn;
   const u=new URL('https://www.call2all.co.il/ym/api/DownloadFile');
   u.searchParams.set('token',YEMOT_TOKEN);u.searchParams.set('path',p);
   const res=await fetch(u,{signal:AbortSignal.timeout(25000)});
@@ -99,33 +71,35 @@ async function transcribeFromYemot(ext,fileName){
  throw new Error('Gemini transcription failed after fallback models: '+lastError);
 }
 const clean=t=>String(t||'').replace(/[\r\n*#_]+/g,' ').slice(0,600);
+const openingText=clean(process.env.OPENING_TEXT||'שלום, הגעתם לעוזר הטלפוני. אחרי הצפצוף אמרו את שאלתכם ולאחר מכן הקישו סולמית.').slice(0,500);
 const app=express();app.disable('x-powered-by');
 app.get('/health',(q,s)=>s.json({ok:true}));
 app.get('/selftest',async(q,s)=>{try{const a=await ask([{role:'user',content:'אמור שלום'}]);s.json({ok:!!a})}catch(e){console.error('AI selftest failed:',e.message);s.status(502).json({ok:false})}});
 const router=YemotRouter({printLog:true,timeout:'10m',defaults:{removeInvalidChars:true,read:{stt:{block_typing:undefined}}},uncaughtErrorHandler:async(e,call)=>{console.error('IVR error:',e.message);try{call.id_list_message([{type:'text',data:'אירעה תקלה זמנית בזיהוי הדיבור נסו שוב'}],{removeInvalidChars:true})}catch(x){try{call.hangup()}catch(y){}}}});
 router.get('/',async call=>{
- const hist=[];let previousAnswer='',previousAudioFile='';
- const ext=String(call.extension||call.ApiExtension||'').replace(/\D/g,'');
+ const hist=[];let previousAnswer='';
+ const rawExt=String(call.extension||call.ApiExtension||'').trim();
+ const ext=rawExt.replace(/\D/g,'');
  for(let i=0;i<20;i++){
   let transcript='';
   try{
    const fileName='q'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-   const messages=i===0?[{type:'text',data:'ברוכים הבאים לעוזר הטלפוני. אחרי הצפצוף אמרו את שאלתכם ולאחר מכן הקישו סולמית'}]:[
-    ...(previousAudioFile?[{type:'file',data:previousAudioFile}]:[{type:'text',data:previousAnswer}]),
-    {type:'text',data:'לשאלה נוספת, אמרו אותה אחרי הצפצוף ולאחר מכן הקישו סולמית'}
-   ];
+   const messages=i===0
+    ?[{type:'text',data:openingText}]
+    :[{type:'text',data:previousAnswer},{type:'text',data:'לשאלה נוספת, אמרו אותה אחרי הצפצוף ולאחר מכן הקישו סולמית'}];
    await call.read(messages,'record',{file_name:fileName,no_confirm_menu:true,min_length:1,max_length:20,save_on_hangup:false});
    transcript=await transcribeFromYemot(ext,fileName);
-  }catch(e){console.error('Recording/transcription failed:',e.message);await call.id_list_message([{type:'text',data:'לא הצלחתי לעבד את ההקלטה נסו שוב בבקשה'}],{prependToNextAction:true,removeInvalidChars:true});continue}
+  }catch(e){
+   console.error('Recording/transcription failed:',e.message);
+   await call.id_list_message([{type:'text',data:'לא הצלחתי לעבד את ההקלטה. נסו שוב בבקשה'}],{prependToNextAction:true,removeInvalidChars:true});
+   continue;
+  }
   if(!transcript||!transcript.trim())continue;
   hist.push({role:'user',content:transcript});
   let a;try{a=await ask(hist)}catch(e){console.error('AI response failed:',e.message)}
-  a=clean(a)||'מצטער אירעה שגיאה נסו שוב';hist.push({role:'assistant',content:a});previousAnswer=a;previousAudioFile='';
-  try{
-   const speechName='a'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
-   const audio=await makeSpeech(a);
-   previousAudioFile=await uploadSpeech(ext,speechName,audio);
-  }catch(e){console.error('Gemini TTS failed; falling back to Yemot text voice:',e.message)}
+  a=clean(a)||'מצטער, אירעה שגיאה. נסו שוב';
+  hist.push({role:'assistant',content:a});
+  previousAnswer=a;
  }
  call.hangup();
 });
