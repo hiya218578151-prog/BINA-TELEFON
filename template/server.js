@@ -50,19 +50,18 @@ app.get('/health',(q,s)=>s.json({ok:true}));
 app.get('/selftest',async(q,s)=>{try{const a=await ask([{role:'user',content:'אמור שלום'}]);s.json({ok:!!a})}catch(e){console.error('AI selftest failed:',e.message);s.status(502).json({ok:false})}});
 const router=YemotRouter({printLog:true,timeout:'10m',defaults:{removeInvalidChars:true,read:{stt:{block_typing:undefined}}},uncaughtErrorHandler:async(e,call)=>{console.error('IVR error:',e.message);try{call.id_list_message([{type:'text',data:'מצטערים אירעה תקלה בזיהוי הדיבור. נסו שוב'}])}catch(x){try{call.hangup()}catch(y){}}}});
 router.get('/',async call=>{
- const hist=[];
+ const hist=[];let previousAnswer='';
  for(let i=0;i<20;i++){
   let transcript='';
   try{
    const fileName='q'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-   await call.read([{type:'text',data:i===0?'ברוכים הבאים לעוזר הטלפוני. אחרי הצפצוף אמרו את שאלתכם ולאחר מכן הקישו סולמית':'אמרו את שאלתכם אחרי הצפצוף ולאחר מכן הקישו סולמית'}],'record',{file_name:fileName,no_confirm_menu:true,min_length:1,max_length:20,save_on_hangup:false});
+   await call.read([{type:'text',data:i===0?'ברוכים הבאים לעוזר הטלפוני. אחרי הצפצוף אמרו את שאלתכם ולאחר מכן הקישו סולמית':previousAnswer+' לשאלה נוספת, אמרו אותה אחרי הצפצוף ולאחר מכן הקישו סולמית'}],'record',{file_name:fileName,no_confirm_menu:true,min_length:1,max_length:20,save_on_hangup:false});
    transcript=await transcribeFromYemot(String(call.extension||'').replace(/\D/g,''),fileName);
   }catch(e){console.error('Recording/transcription failed:',e.message);await call.id_list_message([{type:'text',data:'לא הצלחתי להבין את ההקלטה. נסו שוב בבקשה'}],{prependToNextAction:true});continue}
   if(!transcript||!transcript.trim())continue;
   hist.push({role:'user',content:transcript});
   let a;try{a=await ask(hist)}catch(e){console.error('AI response failed:',e.message)}
-  a=clean(a)||'מצטער אירעה שגיאה נסו שוב';hist.push({role:'assistant',content:a});
-  await call.read([{type:'text',data:a},{type:'text',data:'לשאלה נוספת אמרו אותה אחרי הצפצוף והקישו סולמית. לסיום נתקו'}],'tap',{max_digits:1,allow_empty:true,empty_val:'',sec_wait:2});
+  a=clean(a)||'מצטער אירעה שגיאה נסו שוב';hist.push({role:'assistant',content:a});previousAnswer=a;
  }
  call.hangup();
 });
