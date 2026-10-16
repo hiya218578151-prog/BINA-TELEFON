@@ -40,10 +40,10 @@ app.post('/api/repo',wrap(async q=>{
  return {repo:login+'/'+name,branch:repo.default_branch};
 }));
 app.post('/api/render',wrap(async q=>{
- const {repo,branch,renderKey,provider,model,aiKey,geminiKey,yemotKey,plan}=q.body;const login=sess(q).login;
+ const {repo,branch,renderKey,provider,model,aiKey,geminiKey,yemotKey,plan,openingText}=q.body;const login=sess(q).login;
  if(!login||!sess(q).token||!String(repo||'').startsWith(login+'/'))throw new Error('repo לא תקין');
  const o=await rd(renderKey,'/owners?limit=1');const ownerId=o[0]?.owner?.id;if(!ownerId)throw new Error('לא נמצא workspace ב-Render');
- const envVars=[['AI_PROVIDER',provider],['AI_MODEL',model],['AI_KEY',aiKey],['YEMOT_TOKEN',yemotKey],['GEMINI_API_KEY',geminiKey||(provider==='gemini'?aiKey:'')],['TRANSCRIBE_MODEL','gemini-flash-latest'],['TTS_MODEL','gemini-3.8-flash-tts'],['TTS_VOICE','Kore']].map(([key,value])=>({key,value:String(value||'')}));
+ const envVars=[['AI_PROVIDER',provider],['AI_MODEL',model],['AI_KEY',aiKey],['YEMOT_TOKEN',yemotKey],['GEMINI_API_KEY',geminiKey||(provider==='gemini'?aiKey:'')],['TRANSCRIBE_MODEL','gemini-flash-latest'],['OPENING_TEXT',String(openingText||'שלום, הגעתם לעוזר הטלפוני. אחרי הצפצוף אמרו את שאלתכם ולאחר מכן הקישו סולמית.').trim().slice(0,500)]].map(([key,value])=>({key,value:String(value||'')}));
  const r=await rd(renderKey,'/services','POST',{type:'web_service',name:repo.split('/')[1],ownerId,repo:'https://github.com/'+repo,branch:branch||'main',autoDeploy:'yes',envVars,serviceDetails:{runtime:'node',plan:plan==='starter'?'starter':'free',region:'frankfurt',envSpecificDetails:{buildCommand:'npm install --omit=dev',startCommand:'node server.js'}}});
  const id=r.service?.id;if(!id)throw new Error('Render: לא התקבל מזהה שירות');
  return {serviceId:id,dashboardUrl:r.service.dashboardUrl,url:r.service.serviceDetails?.url||null};
@@ -56,12 +56,21 @@ app.post('/api/status',wrap(async q=>{
  return {url,deploy,failed,up,dashboardUrl:sv.dashboardUrl};
 }));
 app.post('/api/yemot',wrap(async q=>{
- const {yemotKey,ext,url}=q.body;if(!/^\d{1,4}$/.test(String(ext)))throw new Error('מספר שלוחה לא תקין');
+ const {yemotKey,ext,url,mainExtension}=q.body;
+ if(!/^\d{1,4}$/.test(String(ext)))throw new Error('מספר שלוחה לא תקין');
  if(!URLRE.test(String(url)))throw new Error('כתובת שרת לא תקינה');
- const link=url+'/ivr';await ym('UpdateExtension',{token:yemotKey,path:'ivr2:'+ext,type:'api',api_link:link,api_hangup_send:'no'});
+ const link=url+'/ivr';
+ await ym('UpdateExtension',{token:yemotKey,path:'ivr2:'+ext,type:'api',api_link:link,api_hangup_send:'no'});
  const t=await ym('GetTextFile',{token:yemotKey,what:'ivr2:'+ext+'/ext.ini'});
  if(!String(t.contents||'').includes(link))throw new Error('השלוחה עודכנה אך ext.ini לא מכיל את הכתובת — בדקו ידנית');
- return {link};
+ let mainConfigured=false;
+ if(mainExtension===true||mainExtension==='true'){
+  await ym('UpdateExtension',{token:yemotKey,path:'ivr2:/',type:'api',api_link:link,api_hangup_send:'no'});
+  const root=await ym('GetTextFile',{token:yemotKey,what:'ivr2:/ext.ini'});
+  if(!String(root.contents||'').includes(link))throw new Error('לא הצלחתי לאמת את הגדרת השלוחה הראשית. בדקו בימות המשיח.');
+  mainConfigured=true;
+ }
+ return {link,mainConfigured};
 }));
 app.post('/api/selftest',wrap(async q=>{
  const url=String(q.body.url||'');if(!URLRE.test(url))throw new Error('כתובת שרת לא תקינה');
