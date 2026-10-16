@@ -43,7 +43,7 @@ app.post('/api/render',wrap(async q=>{
  const {repo,branch,renderKey,provider,model,aiKey,geminiKey,yemotKey,plan}=q.body;const login=sess(q).login;
  if(!login||!sess(q).token||!String(repo||'').startsWith(login+'/'))throw new Error('repo לא תקין');
  const o=await rd(renderKey,'/owners?limit=1');const ownerId=o[0]?.owner?.id;if(!ownerId)throw new Error('לא נמצא workspace ב-Render');
- const envVars=[['AI_PROVIDER',provider],['AI_MODEL',model],['AI_KEY',aiKey],['YEMOT_TOKEN',yemotKey],['GEMINI_API_KEY',geminiKey||(provider==='gemini'?aiKey:'')],['TRANSCRIBE_MODEL','gemini-3.8-flash'],['TTS_MODEL','gemini-3.8-flash-tts'],['TTS_VOICE','Kore']].map(([key,value])=>({key,value:String(value||'')}));
+ const envVars=[['AI_PROVIDER',provider],['AI_MODEL',model],['AI_KEY',aiKey],['YEMOT_TOKEN',yemotKey],['GEMINI_API_KEY',geminiKey||(provider==='gemini'?aiKey:'')],['TRANSCRIBE_MODEL','gemini-flash-latest'],['TTS_MODEL','gemini-3.8-flash-tts'],['TTS_VOICE','Kore']].map(([key,value])=>({key,value:String(value||'')}));
  const r=await rd(renderKey,'/services','POST',{type:'web_service',name:repo.split('/')[1],ownerId,repo:'https://github.com/'+repo,branch:branch||'main',autoDeploy:'yes',envVars,serviceDetails:{runtime:'node',plan:plan==='starter'?'starter':'free',region:'frankfurt',envSpecificDetails:{buildCommand:'npm install --omit=dev',startCommand:'node server.js'}}});
  const id=r.service?.id;if(!id)throw new Error('Render: לא התקבל מזהה שירות');
  return {serviceId:id,dashboardUrl:r.service.dashboardUrl,url:r.service.serviceDetails?.url||null};
