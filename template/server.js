@@ -65,7 +65,7 @@ async function transcribeFromYemot(ext,fileName){
  }
  if(!audio)throw new Error('Could not download the caller recording from Yemot');
  if(audio.length>19*1024*1024)throw new Error('Recording is too large for inline Gemini audio');
- const requestedModel=String(process.env.TRANSCRIBE_MODEL||'gemini-3.8-flash').trim();
+ const requestedModel=String(process.env.TRANSCRIBE_MODEL||'gemini-flash-latest').trim();
  const models=[...new Set([requestedModel,'gemini-3.6-flash','gemini-3.5-flash-lite'])];
  const prompt={contents:[{role:'user',parts:[{text:'תמלל במדויק את כל הדיבור בהקלטה. השפה העיקרית היא עברית. החזר רק את התמלול עצמו בלי הסברים ובלי סימני ציטוט'},{inlineData:{mimeType:mime,data:audio.toString('base64')}}]}],generationConfig:{temperature:0}};
  let lastError='לא התקבלה תשובה ממודל התמלול';
