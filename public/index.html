@@ -33,7 +33,7 @@ const upd=()=>{const d={s1:!!me,s2:$('rk').value.trim().length>10,s3:$('yk').val
 document.addEventListener('input',()=>{upd();saveLocal()});
 const M={openai:['gpt-4o-mini','gpt-4o'],anthropic:['claude-haiku-5-5','claude-sonnet-5-5'],gemini:['gemini-3.8-flash','gemini-3.6-flash']};
 const fillM=()=>{$('ml').innerHTML=M[$('pv').value].map(x=>'<option value="'+x+'">').join('');$('md').placeholder='למשל '+M[$('pv').value][0]};const showG=()=>{for(const k in M) $('gd-'+k).hidden=$('pv').value!==k};$('pv').onchange=()=>{fillM();showG()};fillM();showG();
-const setMe=l=>{me=l;if(l){$('g').textContent='מחובר: '+l;$('gt').value='';}$('oa').hidden=true;$('pa').hidden=!!l;upd()};
+const setMe=l=>{me=l;if(l){$('g').textContent='מחובר: '+l;if(!$('remember').checked)$('gt').value='';}$('oa').hidden=true;$('pa').hidden=!!l;upd()};
 fetch('/api/config').then(r=>r.json()).then(d=>{if(d.login)setMe(d.login);else{$('oa').hidden=!d.oauth;$('pa').hidden=d.oauth}}).catch(()=>{});
 $('gtb').onclick=async()=>{try{saveLocal();setMe((await post('/api/github-token',{token:$('gt').value})).login);saveLocal()}catch(e){alert(e.message)}};
 const post=async(u,b)=>{const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});const d=await r.json();if(!r.ok)throw new Error(d.error||'שגיאה');return d};
