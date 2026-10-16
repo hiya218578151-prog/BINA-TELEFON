@@ -10,7 +10,14 @@ async function ask(hist){
   j=await r.json();if(!r.ok)throw new Error(j.error?.message||'Anthropic request failed');return j.content?.[0]?.text;
  }
  if(AI_PROVIDER==='gemini'){
-  r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(AI_MODEL)+':generateContent?key='+encodeURIComponent(AI_KEY),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({systemInstruction:{parts:[{text:SYS}]},contents:last.map(m=>({role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]}))});
+  r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(AI_MODEL)+':generateContent?key='+encodeURIComponent(AI_KEY), {
+    method:'POST',
+    headers:{'content-type':'application/json'},
+    body:JSON.stringify({
+      systemInstruction:{parts:[{text:SYS}]},
+      contents:last.map(m=>({role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]}))
+    })
+  });
   j=await r.json();if(!r.ok)throw new Error(j.error?.message||'Gemini request failed');return j.candidates?.[0]?.content?.parts?.[0]?.text;
  }
  r=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+AI_KEY,'content-type':'application/json'},body:JSON.stringify({model:AI_MODEL,max_tokens:300,messages:[{role:'system',content:SYS},...last]})});
