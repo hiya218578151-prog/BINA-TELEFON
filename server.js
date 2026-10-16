@@ -25,10 +25,11 @@ async function aiTest(p,m,k){
 }
 app.post('/api/check',wrap(async q=>{
  const {renderKey,yemotKey,provider,model,aiKey,geminiKey}=q.body,out={};
+ const effectiveModel=String(model||(provider==='gemini'?'gemini-flash-latest':'')).trim();
  const run=async(n,f)=>{try{await f();out[n]={ok:true}}catch(e){out[n]={ok:false,error:e.message}}};
  await run('render',async()=>{if(!renderKey)throw new Error('חסר מפתח Render');const o=await rd(renderKey,'/owners?limit=1');if(!o[0]?.owner?.id)throw new Error('לא נמצא workspace')});
  await run('yemot',async()=>{if(!yemotKey)throw new Error('חסר מפתח ימות');await ym('GetSession',{token:yemotKey})});
- if(!E.SKIP_AI_CHECK)await run('ai',async()=>{if(!aiKey||!model)throw new Error('חסר מפתח או מודל');await aiTest(provider,model,aiKey)});
+ if(!E.SKIP_AI_CHECK)await run('ai',async()=>{if(!aiKey||!effectiveModel)throw new Error(provider==='gemini'?'חסר מפתח Gemini':'חסר מפתח או מודל');await aiTest(provider,effectiveModel,aiKey)});
  await run('transcription',async()=>{if(provider!=='gemini'&&!String(geminiKey||'').trim())throw new Error('נדרש מפתח Gemini נפרד לזיהוי ההקלטות');if(provider==='gemini'&&!String(aiKey||'').trim())throw new Error('נדרש מפתח Gemini');});
  return out}));
 app.post('/api/repo',wrap(async q=>{
@@ -41,9 +42,10 @@ app.post('/api/repo',wrap(async q=>{
 }));
 app.post('/api/render',wrap(async q=>{
  const {repo,branch,renderKey,provider,model,aiKey,geminiKey,yemotKey,plan,openingText}=q.body;const login=sess(q).login;
+ const effectiveModel=String(model||(provider==='gemini'?'gemini-flash-latest':provider==='anthropic'?'claude-haiku-5-5':'gpt-4o-mini')).trim();
  if(!login||!sess(q).token||!String(repo||'').startsWith(login+'/'))throw new Error('repo לא תקין');
  const o=await rd(renderKey,'/owners?limit=1');const ownerId=o[0]?.owner?.id;if(!ownerId)throw new Error('לא נמצא workspace ב-Render');
- const envVars=[['AI_PROVIDER',provider],['AI_MODEL',model],['AI_KEY',aiKey],['YEMOT_TOKEN',yemotKey],['GEMINI_API_KEY',geminiKey||(provider==='gemini'?aiKey:'')],['TRANSCRIBE_MODEL','gemini-flash-latest'],['OPENING_TEXT',String(openingText||'שלום, הגעתם לעוזר הטלפוני. אחרי הצפצוף אמרו את שאלתכם ולאחר מכן הקישו סולמית.').trim().slice(0,500)]].map(([key,value])=>({key,value:String(value||'')}));
+ const envVars=[['AI_PROVIDER',provider],['AI_MODEL',effectiveModel],['AI_KEY',aiKey],['YEMOT_TOKEN',yemotKey],['GEMINI_API_KEY',geminiKey||(provider==='gemini'?aiKey:'')],['TRANSCRIBE_MODEL','gemini-flash-latest'],['OPENING_TEXT',String(openingText||'שלום, הגעתם לעוזר הטלפוני. אחרי הצפצוף אמרו את שאלתכם ולאחר מכן הקישו סולמית.').trim().slice(0,500)]].map(([key,value])=>({key,value:String(value||'')}));
  const r=await rd(renderKey,'/services','POST',{type:'web_service',name:repo.split('/')[1],ownerId,repo:'https://github.com/'+repo,branch:branch||'main',autoDeploy:'yes',envVars,serviceDetails:{runtime:'node',plan:plan==='starter'?'starter':'free',region:'frankfurt',envSpecificDetails:{buildCommand:'npm install --omit=dev',startCommand:'node server.js'}}});
  const id=r.service?.id;if(!id)throw new Error('Render: לא התקבל מזהה שירות');
  return {serviceId:id,dashboardUrl:r.service.dashboardUrl,url:r.service.serviceDetails?.url||null};
