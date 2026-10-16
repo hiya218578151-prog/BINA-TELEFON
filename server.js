@@ -24,11 +24,12 @@ async function aiTest(p,m,k){
  if(!r.ok)throw new Error('ספק הבינה: '+(j.error?.message||j.error||r.status));
 }
 app.post('/api/check',wrap(async q=>{
- const {renderKey,yemotKey,provider,model,aiKey}=q.body,out={};
+ const {renderKey,yemotKey,provider,model,aiKey,geminiKey}=q.body,out={};
  const run=async(n,f)=>{try{await f();out[n]={ok:true}}catch(e){out[n]={ok:false,error:e.message}}};
  await run('render',async()=>{if(!renderKey)throw new Error('חסר מפתח Render');const o=await rd(renderKey,'/owners?limit=1');if(!o[0]?.owner?.id)throw new Error('לא נמצא workspace')});
  await run('yemot',async()=>{if(!yemotKey)throw new Error('חסר מפתח ימות');await ym('GetSession',{token:yemotKey})});
  if(!E.SKIP_AI_CHECK)await run('ai',async()=>{if(!aiKey||!model)throw new Error('חסר מפתח או מודל');await aiTest(provider,model,aiKey)});
+ await run('transcription',async()=>{if(provider!=='gemini'&&!String(geminiKey||'').trim())throw new Error('נדרש מפתח Gemini נפרד לזיהוי ההקלטות');if(provider==='gemini'&&!String(aiKey||'').trim())throw new Error('נדרש מפתח Gemini');});
  return out}));
 app.post('/api/repo',wrap(async q=>{
  const {token,login}=sess(q);if(!token)throw new Error('לא מחובר ל-GitHub');
@@ -39,10 +40,10 @@ app.post('/api/repo',wrap(async q=>{
  return {repo:login+'/'+name,branch:repo.default_branch};
 }));
 app.post('/api/render',wrap(async q=>{
- const {repo,branch,renderKey,provider,model,aiKey,plan}=q.body;const login=sess(q).login;
+ const {repo,branch,renderKey,provider,model,aiKey,geminiKey,yemotKey,plan}=q.body;const login=sess(q).login;
  if(!login||!sess(q).token||!String(repo||'').startsWith(login+'/'))throw new Error('repo לא תקין');
  const o=await rd(renderKey,'/owners?limit=1');const ownerId=o[0]?.owner?.id;if(!ownerId)throw new Error('לא נמצא workspace ב-Render');
- const envVars=[['AI_PROVIDER',provider],['AI_MODEL',model],['AI_KEY',aiKey]].map(([key,value])=>({key,value}));
+ const envVars=[['AI_PROVIDER',provider],['AI_MODEL',model],['AI_KEY',aiKey],['YEMOT_TOKEN',yemotKey],['GEMINI_API_KEY',geminiKey||(provider==='gemini'?aiKey:'')],['TRANSCRIBE_MODEL','gemini-3.8-flash']].map(([key,value])=>({key,value:String(value||'')}));
  const r=await rd(renderKey,'/services','POST',{type:'web_service',name:repo.split('/')[1],ownerId,repo:'https://github.com/'+repo,branch:branch||'main',autoDeploy:'yes',envVars,serviceDetails:{runtime:'node',plan:plan==='starter'?'starter':'free',region:'frankfurt',envSpecificDetails:{buildCommand:'npm install --omit=dev',startCommand:'node server.js'}}});
  const id=r.service?.id;if(!id)throw new Error('Render: לא התקבל מזהה שירות');
  return {serviceId:id,dashboardUrl:r.service.dashboardUrl,url:r.service.serviceDetails?.url||null};
