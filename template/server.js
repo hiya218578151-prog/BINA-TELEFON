@@ -36,19 +36,44 @@ async function transcribeFromYemot(ext,fileName){
  }
  if(!audio)throw new Error('Could not download the caller recording from Yemot');
  if(audio.length>19*1024*1024)throw new Error('Recording is too large for inline Gemini audio');
- const url='https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(process.env.TRANSCRIBE_MODEL||'gemini-3.8-flash')+':generateContent?key='+encodeURIComponent(geminiKey);
- const res=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},signal:AbortSignal.timeout(60000),body:JSON.stringify({contents:[{role:'user',parts:[{text:'תמלל במדויק את כל הדיבור בהקלטה. השפה העיקרית היא עברית. החזר רק את התמלול עצמו, בלי הסברים ובלי סימני ציטוט.'},{inlineData:{mimeType:mime,data:audio.toString('base64')}}]}],generationConfig:{temperature:0}})});
- const data=await res.json();
- if(!res.ok)throw new Error('Gemini transcription failed: '+(data.error?.message||res.status));
- const transcript=(data.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join(' ').trim();
- if(!transcript)throw new Error('Gemini returned an empty transcript');
- return transcript;
+ const requestedModel=String(process.env.TRANSCRIBE_MODEL||'gemini-3.8-flash').trim();
+ const models=[...new Set([requestedModel,'gemini-3.6-flash','gemini-3.5-flash-lite'])];
+ const prompt={contents:[{role:'user',parts:[{text:'תמלל במדויק את כל הדיבור בהקלטה. השפה העיקרית היא עברית. החזר רק את התמלול עצמו בלי הסברים ובלי סימני ציטוט'},{inlineData:{mimeType:mime,data:audio.toString('base64')}}]}],generationConfig:{temperature:0}};
+ let lastError='לא התקבלה תשובה ממודל התמלול';
+ for(const model of models){
+  for(let attempt=0;attempt<2;attempt++){
+   let res,data;
+   try{
+    const url='https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent?key='+encodeURIComponent(geminiKey);
+    res=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},signal:AbortSignal.timeout(45000),body:JSON.stringify(prompt)});
+    data=await res.json().catch(()=>({}));
+   }catch(e){
+    lastError=e.message||'network error';
+    if(attempt===0){await new Promise(resolve=>setTimeout(resolve,700));continue}
+    break;
+   }
+   if(!res.ok){
+    lastError=data.error?.message||String(res.status);
+    const temporary=[429,500,502,503,504].includes(res.status)||/high demand|temporarily unavailable|overloaded|try again later|resource exhausted/i.test(lastError);
+    if(!temporary)throw new Error('Gemini transcription failed: '+lastError);
+    console.warn('Temporary transcription failure for',model,'HTTP',res.status);
+    if(attempt===0){await new Promise(resolve=>setTimeout(resolve,700));continue}
+    break;
+   }
+   const transcript=(data.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join(' ').trim();
+   if(transcript)return transcript;
+   lastError='Gemini returned an empty transcript';
+   break;
+  }
+  console.warn('Trying next transcription model after temporary failure:',model);
+ }
+ throw new Error('Gemini transcription failed after fallback models: '+lastError);
 }
 const clean=t=>String(t||'').replace(/[\r\n*#_]+/g,' ').slice(0,600);
 const app=express();app.disable('x-powered-by');
 app.get('/health',(q,s)=>s.json({ok:true}));
 app.get('/selftest',async(q,s)=>{try{const a=await ask([{role:'user',content:'אמור שלום'}]);s.json({ok:!!a})}catch(e){console.error('AI selftest failed:',e.message);s.status(502).json({ok:false})}});
-const router=YemotRouter({printLog:true,timeout:'10m',defaults:{removeInvalidChars:true,read:{stt:{block_typing:undefined}}},uncaughtErrorHandler:async(e,call)=>{console.error('IVR error:',e.message);try{call.id_list_message([{type:'text',data:'מצטערים אירעה תקלה בזיהוי הדיבור. נסו שוב'}])}catch(x){try{call.hangup()}catch(y){}}}});
+const router=YemotRouter({printLog:true,timeout:'10m',defaults:{removeInvalidChars:true,read:{stt:{block_typing:undefined}}},uncaughtErrorHandler:async(e,call)=>{console.error('IVR error:',e.message);try{call.id_list_message([{type:'text',data:'אירעה תקלה זמנית בזיהוי הדיבור נסו שוב'}],{removeInvalidChars:true})}catch(x){try{call.hangup()}catch(y){}}}});
 router.get('/',async call=>{
  const hist=[];let previousAnswer='';
  for(let i=0;i<20;i++){
@@ -57,7 +82,7 @@ router.get('/',async call=>{
    const fileName='q'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
    await call.read([{type:'text',data:i===0?'ברוכים הבאים לעוזר הטלפוני. אחרי הצפצוף אמרו את שאלתכם ולאחר מכן הקישו סולמית':previousAnswer+' לשאלה נוספת, אמרו אותה אחרי הצפצוף ולאחר מכן הקישו סולמית'}],'record',{file_name:fileName,no_confirm_menu:true,min_length:1,max_length:20,save_on_hangup:false});
    transcript=await transcribeFromYemot(String(call.extension||'').replace(/\D/g,''),fileName);
-  }catch(e){console.error('Recording/transcription failed:',e.message);await call.id_list_message([{type:'text',data:'לא הצלחתי להבין את ההקלטה. נסו שוב בבקשה'}],{prependToNextAction:true});continue}
+  }catch(e){console.error('Recording/transcription failed:',e.message);await call.id_list_message([{type:'text',data:'לא הצלחתי לעבד את ההקלטה נסו שוב בבקשה'}],{prependToNextAction:true,removeInvalidChars:true});continue}
   if(!transcript||!transcript.trim())continue;
   hist.push({role:'user',content:transcript});
   let a;try{a=await ask(hist)}catch(e){console.error('AI response failed:',e.message)}
