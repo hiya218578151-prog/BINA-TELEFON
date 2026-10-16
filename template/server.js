@@ -1,6 +1,7 @@
 const express=require('express');
 const {YemotRouter}=require('yemot-router2');
-const {AI_PROVIDER='openai',AI_MODEL,AI_KEY,YEMOT_TOKEN,GEMINI_API_KEY}=process.env;
+const {AI_PROVIDER='openai',AI_KEY,YEMOT_TOKEN,GEMINI_API_KEY}=process.env;
+const AI_MODEL=String(process.env.AI_MODEL||(AI_PROVIDER==='gemini'?'gemini-flash-latest':AI_PROVIDER==='anthropic'?'claude-haiku-5-5':'gpt-4o-mini')).trim();
 const SYS='אתה עוזר טלפוני. ענה בעברית, בקצרה (עד 3 משפטים), בלי סימנים מיוחדים ובלי רשימות.';
 const geminiKey=GEMINI_API_KEY||(AI_PROVIDER==='gemini'?AI_KEY:'');
 async function ask(hist){
@@ -70,12 +71,12 @@ async function transcribeFromYemot(ext,fileName){
  }
  throw new Error('Gemini transcription failed after fallback models: '+lastError);
 }
-const clean=t=>String(t||'').replace(/[\r\n*#_]+/g,' ').slice(0,600);
+const clean=t=>String(t||'').normalize('NFC').replace(/[^\p{L}\p{M}\p{N}\s]/gu,' ').replace(/\s+/g,' ').trim().slice(0,600);
 const openingText=clean(process.env.OPENING_TEXT||'שלום, הגעתם לעוזר הטלפוני. אחרי הצפצוף אמרו את שאלתכם ולאחר מכן הקישו סולמית.').slice(0,500);
 const app=express();app.disable('x-powered-by');
 app.get('/health',(q,s)=>s.json({ok:true}));
 app.get('/selftest',async(q,s)=>{try{const a=await ask([{role:'user',content:'אמור שלום'}]);s.json({ok:!!a})}catch(e){console.error('AI selftest failed:',e.message);s.status(502).json({ok:false})}});
-const router=YemotRouter({printLog:true,timeout:'10m',defaults:{removeInvalidChars:true,read:{stt:{block_typing:undefined}}},uncaughtErrorHandler:async(e,call)=>{console.error('IVR error:',e.message);try{call.id_list_message([{type:'text',data:'אירעה תקלה זמנית בזיהוי הדיבור נסו שוב'}],{removeInvalidChars:true})}catch(x){try{call.hangup()}catch(y){}}}});
+const router=YemotRouter({printLog:true,timeout:'10m',defaults:{removeInvalidChars:true,read:{stt:{block_typing:undefined}}},uncaughtErrorHandler:async(e,call)=>{console.error('IVR error:',e.message);try{call.id_list_message([{type:'text',data:'ארעה תקלה זמנית בזיהוי הדיבור נסו שוב'}],{removeInvalidChars:true})}catch(x){try{call.hangup()}catch(y){}}}});
 router.get('/',async call=>{
  const hist=[];let previousAnswer='';
  const rawExt=String(call.extension||call.ApiExtension||'').trim();
@@ -91,7 +92,7 @@ router.get('/',async call=>{
    transcript=await transcribeFromYemot(ext,fileName);
   }catch(e){
    console.error('Recording/transcription failed:',e.message);
-   await call.id_list_message([{type:'text',data:'לא הצלחתי לעבד את ההקלטה. נסו שוב בבקשה'}],{prependToNextAction:true,removeInvalidChars:true});
+   await call.id_list_message([{type:'text',data:'לא הצלחתי לעבד את ההקלטה נסו שוב בבקשה'}],{prependToNextAction:true,removeInvalidChars:true});
    continue;
   }
   if(!transcript||!transcript.trim())continue;
