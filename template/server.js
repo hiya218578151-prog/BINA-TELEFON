@@ -1,7 +1,7 @@
 const express=require('express');
 const {YemotRouter}=require('yemot-router2');
 const {AI_PROVIDER='openai',AI_KEY,YEMOT_TOKEN,GEMINI_API_KEY}=process.env;
-const AI_MODEL=String(process.env.AI_MODEL||(AI_PROVIDER==='gemini'?'gemini-flash-latest':AI_PROVIDER==='anthropic'?'claude-haiku-5-5':'gpt-4o-mini')).trim();
+const AI_MODEL=String(process.env.AI_MODEL||(AI_PROVIDER==='gemini'?'gemini-flash-lite-latest':AI_PROVIDER==='anthropic'?'claude-haiku-5-5':'gpt-4o-mini')).trim();
 const SYS='אתה עוזר טלפוני. ענה בעברית, בקצרה (עד 3 משפטים), בלי סימנים מיוחדים ובלי רשימות.';
 const geminiKey=GEMINI_API_KEY||(AI_PROVIDER==='gemini'?AI_KEY:'');
 async function ask(hist){
