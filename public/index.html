@@ -24,7 +24,7 @@ ul#log{list-style:none;padding:0;margin:8px 0}ul#log li{padding:10px 14px;border
 const $=i=>document.getElementById(i);let me=null;
 const upd=()=>{const d={s1:!!me,s2:$('rk').value.trim().length>10,s3:$('yk').value.trim().length>5&&/^\\d{1,4}$/.test($('ye').value.trim()),s4:$('md').value.trim().length>1&&$('ak').value.trim().length>8};for(const k in d)$(k).classList.toggle('done',d[k])};
 document.addEventListener('input',upd);
-const M={openai:['gpt-4o-mini','gpt-4o'],anthropic:['claude-haiku-5-5','claude-sonnet-5-5'],gemini:['gemini-2.5-flash','gemini-2.5-pro']};
+const M={openai:['gpt-4o-mini','gpt-4o'],anthropic:['claude-haiku-5-5','claude-sonnet-5-5'],gemini:['gemini-3.8-flash','gemini-3.6-flash']};
 const fillM=()=>{$('ml').innerHTML=M[$('pv').value].map(x=>'<option value="'+x+'">').join('');$('md').placeholder='למשל '+M[$('pv').value][0]};const showG=()=>{for(const k in M) $('gd-'+k).hidden=$('pv').value!==k};$('pv').onchange=()=>{fillM();showG()};fillM();showG();
 const setMe=l=>{me=l;if(l){$('g').textContent='מחובר: '+l;$('gt').value='';}$('oa').hidden=true;$('pa').hidden=!!l;upd()};
 fetch('/api/config').then(r=>r.json()).then(d=>{if(d.login)setMe(d.login);else{$('oa').hidden=!d.oauth;$('pa').hidden=d.oauth}}).catch(()=>{});
